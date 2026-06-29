@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>LockedIn · by Comudel</title>
+<link rel="icon" href="comudel-mark.png">
+<style>
+  /* Comudel's actual brand typeface */
+  @font-face {
+    font-family: "Aeonik";
+    src: url("fonts/Aeonik-Regular.otf") format("opentype");
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  :root {
+    /* Comudel brand palette */
+    --brand:   #4d4dff;
+    --brand-d: #4b4bd8;
+    --ink:     #ececf6;
+    --surface: #080821;
+    --card:    #14142e;
+    --line:    #2a2a4a;
+    --muted:   #9595b3;
+    --coral:   #e7625f;
+    --mint:    #19b89a;
+
+    --accent: var(--brand);   /* focus */
+    --break:  var(--mint);    /* short */
+    --long:   var(--coral);   /* long  */
+
+    --ring-track: #23233f;
+    --shadow: 0 18px 50px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.30);
+    --font-head: "Aeonik", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-body: "Aeonik", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    color: var(--ink);
+    font-family: var(--font-body);
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100%; padding: 30px 16px 44px;
+    background: var(--surface);   /* dark theme: Comudel deep navy #080821 */
+  }
+
+  /* Brand header */
+  .brand { display: flex; align-items: center; gap: 11px; margin: 2px 0 3px; }
+  .brand .mark { height: 30px; width: auto; flex: none; filter: drop-shadow(0 4px 10px rgba(77,77,255,.28)); }
+  .brand .name { font-family: var(--font-head); font-weight: 700; font-size: 28px; letter-spacing: -.8px; color: var(--ink); }
+  .sub { color: var(--muted); font-size: 12.5px; letter-spacing: .3px; margin-bottom: 26px; }
+  .sub b { color: var(--brand); font-weight: 600; }
+
+  .modes { display: flex; gap: 6px; margin-bottom: 26px; background: var(--card); padding: 6px; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+  .modes button {
+    border: 0; background: transparent; color: var(--muted);
+    padding: 10px 18px; border-radius: 11px; font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-body); transition: all .2s ease;
+  }
+  .modes button.active { background: #23233f; color: var(--ink); }
+  .modes button[data-mode="focus"].active { color: var(--brand); }
+  .modes button[data-mode="short"].active { color: var(--mint); }
+  .modes button[data-mode="long"].active  { color: var(--coral); }
+
+  /* Ring */
+  .ring-wrap { position: relative; width: 320px; max-width: 80vw; aspect-ratio: 1; margin-bottom: 8px; }
+  svg.ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring-track { fill: none; stroke: var(--ring-track); stroke-width: 13; }
+  .ring-prog  { fill: none; stroke: var(--accent); stroke-width: 13; stroke-linecap: round;
+                transition: stroke-dashoffset 1s linear, stroke .4s ease;
+                filter: drop-shadow(0 4px 12px rgba(77,77,255,.25)); }
+  .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .time { font-family: var(--font-head); font-size: 70px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -1px; color: var(--ink); }
+  .phase { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 2.5px; margin-top: 4px; font-weight: 600; }
+
+  /* Controls */
+  .controls { display: flex; gap: 12px; align-items: center; margin: 22px 0 30px; }
+  .btn { border: 0; border-radius: 999px; cursor: pointer; font-weight: 700; font-family: var(--font-body);
+         transition: transform .08s ease, background .2s ease, box-shadow .2s, opacity .2s; }
+  .btn:active { transform: scale(.96); }
+  .btn-primary { background: var(--brand); color: #fff; font-size: 16px; padding: 16px 44px;
+                 box-shadow: 0 10px 26px rgba(77,77,255,.35); }
+  body.mode-break .btn-primary { background: var(--mint); box-shadow: 0 10px 26px rgba(25,184,154,.32); }
+  body.mode-long  .btn-primary { background: var(--coral); box-shadow: 0 10px 26px rgba(231,98,95,.32); }
+  .btn-ghost { background: var(--card); color: var(--muted); padding: 16px 22px; font-size: 14px; border: 1px solid var(--line); }
+  .btn-ghost:hover { color: var(--ink); }
+
+  /* Sound picker */
+  .panel { width: 380px; max-width: 92vw; background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 18px; }
+  .panel h2 { font-family: var(--font-head); font-size: 11px; text-transform: uppercase; letter-spacing: 1.8px; color: var(--muted); margin: 2px 2px 14px; font-weight: 600; }
+  .sounds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: #1b1b38; color: var(--muted);
+    border-radius: 13px; padding: 12px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-body); display: flex; flex-direction: column; align-items: center; gap: 5px;
+    transition: all .18s ease;
+  }
+  .chip .ico { font-size: 20px; line-height: 1; }
+  .chip:hover { border-color: #3a3a60; color: var(--ink); }
+  .chip.active { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 8px 20px rgba(77,77,255,.3); }
+
+  .vol-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 0 2px; }
+  .vol-row input[type=range] { flex: 1; accent-color: var(--brand); height: 4px; }
+  .vol-row .ic { font-size: 15px; color: var(--muted); }
+
+  .toggle {
+    margin-top: 14px; background: #1b1b38; border: 1px solid var(--line); border-radius: 13px;
+    padding: 11px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted);
+    cursor: pointer; user-select: none; font-weight: 600; transition: all .18s ease; justify-content: center;
+  }
+  .toggle.on { color: var(--ink); border-color: #3a3a60; }
+  .toggle .dot { width: 9px; height: 9px; border-radius: 50%; background: #45456c; transition: all .2s; }
+  .toggle.on .dot { background: var(--brand); box-shadow: 0 0 10px #4d4dff88; }
+
+  .footer { color: var(--muted); font-size: 12px; margin-top: 24px; text-align: center; line-height: 1.7; }
+  .footer kbd { background: #23233f; border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; font-size: 11px; color: var(--ink); }
+  .footer a { color: var(--brand); text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body class="mode-focus">
+
+  <div class="brand">
+    <img class="mark" src="comudel-mark.png" alt="Comudel" />
+    <span class="name">LockedIn</span>
+  </div>
+  <div class="sub">by <b>Comudel</b> — focus in sprints.</div>
+
+  <div class="modes" id="modes">
+    <button data-mode="focus" class="active">Focus</button>
+    <button data-mode="short">Short break</button>
+    <button data-mode="long">Long break</button>
+  </div>
+
+  <div class="ring-wrap">
+    <svg class="ring" viewBox="0 0 240 240">
+      <circle class="ring-track" cx="120" cy="120" r="110"></circle>
+      <circle class="ring-prog" id="ringProg" cx="120" cy="120" r="110"></circle>
+    </svg>
+    <div class="ring-center">
+      <div class="time" id="time">25:00</div>
+      <div class="phase" id="phase">Focus</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="startBtn">Start</button>
+    <button class="btn btn-ghost" id="resetBtn">Reset</button>
+    <button class="btn btn-ghost" id="skipBtn">Skip ⏭</button>
+  </div>
+
+  <div class="panel">
+    <h2>Focus sound</h2>
+    <div class="sounds" id="sounds">
+      <button class="chip" data-sound="off"><span class="ico">🔇</span> None</button>
+      <button class="chip" data-sound="white"><span class="ico">⚪</span> White</button>
+      <button class="chip" data-sound="brown"><span class="ico">🟤</span> Brown</button>
+      <button class="chip" data-sound="waves"><span class="ico">🌊</span> Waves</button>
+      <button class="chip" data-sound="rain"><span class="ico">🌧️</span> Rain</button>
+      <button class="chip" data-sound="fire"><span class="ico">🔥</span> Fire</button>
+      <button class="chip" data-sound="coffee"><span class="ico">☕</span> Café</button>
+    </div>
+    <div class="vol-row">
+      <span class="ic">🔈</span>
+      <input type="range" min="0" max="100" value="50" id="vol" />
+      <span class="ic">🔊</span>
+    </div>
+    <label class="toggle on" id="chimeToggle"><span class="dot"></span> 🔔 Chime when a timer ends</label>
+  </div>
+
+  <div class="footer">
+    Runs fully offline · nothing leaves your device.<br>
+    <kbd>Space</kbd> start/pause · <kbd>R</kbd> reset · <kbd>S</kbd> skip<br>
+    <a href="https://comudel.com" target="_blank" rel="noopener">comudel.com</a>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- Config ----------
+  const DURATIONS = { focus: 25*60, short: 5*60, long: 15*60 };
+  const LABELS    = { focus: "Focus", short: "Short break", long: "Long break" };
+  const COLORS    = { focus: "var(--brand)", short: "var(--mint)", long: "var(--coral)" };
+  const POMOS_BEFORE_LONG = 4;
+
+  // ---------- State ----------
+  let mode = "focus";
+  let remaining = DURATIONS[mode];
+  let running = false;
+  let ticker = null;
+  let endAt = 0;
+  let completedSinceLong = 0;
+
+  // ---------- Elements ----------
+  const el = (id) => document.getElementById(id);
+  const timeEl = el("time"), phaseEl = el("phase"), ringProg = el("ringProg");
+  const startBtn = el("startBtn"), resetBtn = el("resetBtn"), skipBtn = el("skipBtn");
+  const soundsEl = el("sounds"), vol = el("vol"), chimeToggle = el("chimeToggle");
+
+  const R = 110, CIRC = 2 * Math.PI * R;
+  ringProg.style.strokeDasharray = CIRC;
+
+  // ---------- Preferences ----------
+  const load = () => { try { return JSON.parse(localStorage.getItem("lockedIn")) || {}; } catch { return {}; } };
+  const save = () => localStorage.setItem("lockedIn", JSON.stringify(prefs));
+  let prefs = load();
+  if (typeof prefs.chime === "undefined") prefs.chime = true;
+  if (typeof prefs.vol   === "undefined") prefs.vol = 50;
+  if (typeof prefs.sound === "undefined") prefs.sound = "off";
+  vol.value = prefs.vol;
+  chimeToggle.classList.toggle("on", prefs.chime);
+
+  // ========================================================================
+  //  AUDIO ENGINE  (all sounds generated live — no audio files)
+  // ========================================================================
+  let actx = null;
+  const ensureCtx = () => {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+    return actx;
+  };
+
+  // White/brown noise is PRE-RENDERED into a looping AudioBuffer instead of being
+  // generated live. A ScriptProcessor runs on the main thread and crackles/glitches
+  // ("damaged"); a buffer source plays on the audio thread, glitch-free. The buffer
+  // is crossfaded end-to-start so the loop is seamless, and brown is DC-blocked +
+  // peak-normalized so it can never clip.
+  const noiseCache = {};
+  function makeNoiseBuffer(ctx, brown, seconds) {
+    const sr = ctx.sampleRate;
+    const X = Math.floor(0.5 * sr);              // crossfade length
+    const L = Math.floor(seconds * sr);
+    const raw = new Float32Array(L + X);
+    let last = 0, dcx = 0, dcy = 0;
+    for (let i = 0; i < L + X; i++) {
+      const w = Math.random() * 2 - 1;
+      if (brown) {
+        last = (last + 0.02 * w) / 1.02;         // leaky integrator -> brownian
+        const v = last * 3.5;
+        const y = v - dcx + 0.996 * dcy;         // DC blocker -> no drift/clipping
+        dcx = v; dcy = y; raw[i] = y;
+      } else raw[i] = w;
+    }
+    const mono = new Float32Array(L);
+    for (let i = 0; i < L; i++) mono[i] = raw[i];
+    for (let i = 0; i < X; i++) {                // fold tail into head -> seamless loop.
+      const t = i / X;                           // EQUAL-POWER weights (sqrt) keep the
+      mono[i] = raw[i] * Math.sqrt(t) + raw[L + i] * Math.sqrt(1 - t); // volume constant — a linear blend dipped here
+    }
+    let max = 1e-6;
+    for (let i = 0; i < L; i++) { const a = Math.abs(mono[i]); if (a > max) max = a; }
+    const norm = 0.9 / max;                      // normalize so it never clips
+    const buf = ctx.createBuffer(2, L, sr);
+    const cl = buf.getChannelData(0), cr = buf.getChannelData(1), half = L >> 1;
+    for (let i = 0; i < L; i++) { cl[i] = mono[i] * norm; cr[i] = mono[(i + half) % L] * norm; } // R = phase-shifted -> stereo width, still seamless
+    return buf;
+  }
+  function noiseSource(ctx, brown, key, seconds) {
+    if (!noiseCache[key]) noiseCache[key] = makeNoiseBuffer(ctx, brown, seconds);
+    const s = ctx.createBufferSource(); s.buffer = noiseCache[key]; s.loop = true; s.start();
+    return s;
+  }
+  const filt = (ctx, type, freq, q) => { const f = ctx.createBiquadFilter(); f.type=type; f.frequency.value=freq; if(q!=null) f.Q.value=q; return f; };
+
+  // ---- Per-sound builders: build graph into `out`, return a cleanup fn ----
+  const BUILDERS = {
+    white(ctx, out) {
+      const s = noiseSource(ctx, false, "white", 12);
+      const lp = filt(ctx,"lowpass",8000), g = ctx.createGain(); g.gain.value = 0.28;
+      s.connect(lp).connect(g).connect(out);
+      return () => { try{s.stop();}catch{} try{s.disconnect();}catch{} };
+    },
+    brown(ctx, out) {
+      const s = noiseSource(ctx, true, "brown", 20);
+      const shelf = filt(ctx,"lowshelf",80), lp = filt(ctx,"lowpass",2200,0.5), g = ctx.createGain();
+      shelf.gain.value = -4; g.gain.value = 0.95;
+      s.connect(shelf).connect(lp).connect(g).connect(out);
+      return () => { try{s.stop();}catch{} try{s.disconnect();}catch{} };
+    },
+  };
+
+  // Real recorded loops (royalty-free, bundled locally so it still works offline)
+  const FILES = {
+    waves:  "sounds/waves.mp3",
+    rain:   "sounds/rain.mp3",
+    fire:   "sounds/fire.mp3",
+    coffee: "sounds/cafe.mp3",
+  };
+
+  let ambient = null;                  // synth: {kind,out,cleanup} | file: {kind,audio,fade}
+  let currentSound = "off";            // always start silent; user picks a sound
+  const volTarget = () => vol.value / 100;
+
+  // Gapless looping for recorded clips. MP3s carry a few ms of silent padding at
+  // their loop point ("a sound without noise"). Two audio elements are cross-faded
+  // across the seam so the next copy is already rising before the gap arrives.
+  function startLooper(url) {
+    const els = [new Audio(url), new Audio(url)];
+    els.forEach(e => { e.preload = "auto"; });
+    let primary = 0, crossing = false;
+    let env = 0, envFrom = 0, envTarget = 1, envStart = Date.now(), envDur = 450;
+    const XF = 1.5;                                  // crossfade window (seconds)
+    const setEnv = (t, ms) => { envFrom = env; envTarget = t; envStart = Date.now(); envDur = ms; };
+    els[0].play().catch(() => {});
+    const id = setInterval(() => {                   // setInterval (not rAF) keeps looping in background tabs
+      const k = envDur ? Math.min(1, (Date.now() - envStart) / envDur) : 1;
+      env = envFrom + (envTarget - envFrom) * k;
+      const m = volTarget() * env;
+      const p = els[primary], s = els[1 - primary];
+      if (p.duration && p.currentTime >= p.duration - XF && !crossing) {
+        crossing = true; s.currentTime = 0; s.play().catch(() => {});
+      }
+      if (crossing) {
+        const remain = Math.max(0, (p.duration || 0) - p.currentTime);
+        const f = Math.max(0, Math.min(1, remain / XF));
+        p.volume = Math.min(1, m * f); s.volume = Math.min(1, m * (1 - f));
+        if (p.ended || remain <= 0.05) { try { p.pause(); } catch {} crossing = false; primary = 1 - primary; }
+      } else { p.volume = Math.min(1, m); s.volume = 0; }
+    }, 200);
+    return {
+      fadeOut: (ms) => setEnv(0, ms),
+      stop: () => { clearInterval(id); els.forEach(e => { try { e.pause(); } catch {} try { e.src = ""; } catch {} }); },
+    };
+  }
+
+  function setSound(type) {
+    const same = type === currentSound;
+    currentSound = same ? "off" : type;     // clicking the active chip turns it off
+    prefs.sound = currentSound; save();
+    updateSoundUI();
+    stopAmbient();
+    if (currentSound === "off") return;
+
+    if (FILES[currentSound]) {
+      ambient = { kind: "file", looper: startLooper(FILES[currentSound]) };   // real recorded loop, cross-faded
+    } else {
+      // synthesized noise (white / brown)
+      const ctx = ensureCtx();
+      const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
+      const cleanup = BUILDERS[currentSound](ctx, out);
+      ambient = { kind: "synth", out, cleanup };
+      out.gain.setTargetAtTime(volTarget(), ctx.currentTime, 0.4);   // fade in
+    }
+  }
+  function stopAmbient() {
+    if (!ambient) return;
+    const a = ambient; ambient = null;
+    if (a.kind === "file") {
+      a.looper.fadeOut(280);
+      setTimeout(() => a.looper.stop(), 320);
+    } else {
+      a.out.gain.setTargetAtTime(0, actx.currentTime, 0.3);
+      setTimeout(() => { try { a.cleanup(); } catch {} try { a.out.disconnect(); } catch {} }, 700);
+    }
+  }
+  function applyVol() {
+    // synth: nudge gain. file: looper reads volTarget() live each tick, nothing to do.
+    if (ambient && ambient.kind === "synth") ambient.out.gain.setTargetAtTime(volTarget(), actx.currentTime, 0.08);
+  }
+  function updateSoundUI() {
+    [...soundsEl.children].forEach(b => b.classList.toggle("active", b.dataset.sound === currentSound));
+  }
+
+  // Chime when a timer ends
+  function chime(kind) {
+    if (!prefs.chime) return;
+    const ctx = ensureCtx();
+    const notes = kind === "focusEnd" ? [660, 880, 990] : [523, 659];
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      const t = ctx.currentTime + i * 0.18;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.3, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.55);
+    });
+  }
+
+  // ========================================================================
+  //  TIMER
+  // ========================================================================
+  function fmt(s) {
+    const m = Math.floor(s/60), sec = s % 60;
+    return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+  }
+  function render() {
+    timeEl.textContent = fmt(remaining);
+    phaseEl.textContent = LABELS[mode];
+    const frac = remaining / DURATIONS[mode];
+    ringProg.style.strokeDashoffset = CIRC * (1 - frac);
+    ringProg.style.stroke = COLORS[mode];
+    document.title = (running ? "▶ " : "") + fmt(remaining) + " · " + LABELS[mode];
+  }
+  function setMode(m, autostart=false) {
+    mode = m; remaining = DURATIONS[m];
+    document.body.className = "mode-" + (m === "focus" ? "focus" : m === "short" ? "break" : "long");
+    [...el("modes").children].forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+    stop(); render();
+    if (autostart) start();
+  }
+  function tick() {
+    remaining = Math.max(0, Math.round((endAt - Date.now())/1000));
+    render();
+    if (remaining <= 0) complete();
+  }
+  function start() {
+    if (running) return;
+    running = true;
+    endAt = Date.now() + remaining * 1000;
+    ticker = setInterval(tick, 250);
+    startBtn.textContent = "Pause";
+    ensureCtx();
+  }
+  function pause() { running = false; clearInterval(ticker); startBtn.textContent = "Resume"; render(); }
+  function stop()  { running = false; clearInterval(ticker); startBtn.textContent = "Start"; }
+  function reset() { remaining = DURATIONS[mode]; stop(); render(); }
+  function complete() {
+    stop();
+    if (mode === "focus") {
+      chime("focusEnd");
+      completedSinceLong++;
+      const next = completedSinceLong >= POMOS_BEFORE_LONG ? "long" : "short";
+      if (next === "long") completedSinceLong = 0;
+      flashNotify(next === "long" ? "Great work — take a long break 🌿" : "Nice — short break ☕");
+      setMode(next, true);
+    } else {
+      chime("breakEnd");
+      flashNotify("Break over — back to focus 🎯");
+      setMode("focus", true);
+    }
+  }
+  function skip() {
+    if (mode === "focus") { completedSinceLong++; const n = completedSinceLong >= POMOS_BEFORE_LONG ? "long":"short"; if(n==="long")completedSinceLong=0; setMode(n); }
+    else setMode("focus");
+  }
+  function flashNotify(msg) {
+    phaseEl.textContent = msg;
+    if (window.Notification && Notification.permission === "granted") {
+      try { new Notification("LockedIn", { body: msg }); } catch {}
+    }
+  }
+
+  // ========================================================================
+  //  EVENTS
+  // ========================================================================
+  startBtn.onclick = () => { running ? pause() : start(); };
+  resetBtn.onclick = reset;
+  skipBtn.onclick  = skip;
+  [...el("modes").children].forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  [...soundsEl.children].forEach(b => b.onclick = () => setSound(b.dataset.sound));
+
+  vol.addEventListener("input", () => { prefs.vol = +vol.value; save(); applyVol(); });
+
+  chimeToggle.addEventListener("click", () => {
+    prefs.chime = chimeToggle.classList.toggle("on"); save();
+    if (prefs.chime) chime("breakEnd");
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); running ? pause() : start(); }
+    else if (e.key === "r" || e.key === "R") reset();
+    else if (e.key === "s" || e.key === "S") skip();
+  });
+
+  // Ask for notification permission on first interaction
+  document.body.addEventListener("click", function once() {
+    if (window.Notification && Notification.permission === "default") Notification.requestPermission();
+    document.body.removeEventListener("click", once);
+  }, { once: true });
+
+  // ---------- Init ----------
+  setMode("focus");
+  updateSoundUI();
+})();
+</script>
+</body>
+</html>
