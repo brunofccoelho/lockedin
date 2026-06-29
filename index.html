@@ -290,71 +290,74 @@
   let currentSound = "off";            // always start silent; user picks a sound
   const volTarget = () => vol.value / 100;
 
-  // Gapless looping for recorded clips. MP3s carry a few ms of silent padding at
-  // their loop point ("a sound without noise"). Two audio elements are cross-faded
-  // across the seam so the next copy is already rising before the gap arrives.
-  function startLooper(url) {
-    const els = [new Audio(url), new Audio(url)];
-    els.forEach(e => { e.preload = "auto"; });
-    let primary = 0, crossing = false;
-    let env = 0, envFrom = 0, envTarget = 1, envStart = Date.now(), envDur = 450;
-    const XF = 1.5;                                  // crossfade window (seconds)
-    const setEnv = (t, ms) => { envFrom = env; envTarget = t; envStart = Date.now(); envDur = ms; };
-    els[0].play().catch(() => {});
-    const id = setInterval(() => {                   // setInterval (not rAF) keeps looping in background tabs
-      const k = envDur ? Math.min(1, (Date.now() - envStart) / envDur) : 1;
-      env = envFrom + (envTarget - envFrom) * k;
-      const m = volTarget() * env;
-      const p = els[primary], s = els[1 - primary];
-      if (p.duration && p.currentTime >= p.duration - XF && !crossing) {
-        crossing = true; s.currentTime = 0; s.play().catch(() => {});
-      }
-      if (crossing) {
-        const remain = Math.max(0, (p.duration || 0) - p.currentTime);
-        const f = Math.max(0, Math.min(1, remain / XF));
-        p.volume = Math.min(1, m * f); s.volume = Math.min(1, m * (1 - f));
-        if (p.ended || remain <= 0.05) { try { p.pause(); } catch {} crossing = false; primary = 1 - primary; }
-      } else { p.volume = Math.min(1, m); s.volume = 0; }
-    }, 200);
-    return {
-      fadeOut: (ms) => setEnv(0, ms),
-      stop: () => { clearInterval(id); els.forEach(e => { try { e.pause(); } catch {} try { e.src = ""; } catch {} }); },
-    };
+  // Recorded clips are fetched, decoded, and looped through the SAME Web Audio graph
+  // as white/brown. The previous <audio>-element crossfade didn't play in Safari
+  // (it blocks media elements started outside a click). The decoded buffer is made
+  // seamless by crossfading its tail into its head. Falls back to a looping <audio>
+  // element only if fetch/decode is unavailable (e.g. opened from a file:// path).
+  const fileBufferCache = {};
+  function makeSeamless(ctx, buf) {
+    const sr = buf.sampleRate;
+    const X = Math.min(Math.floor(0.5 * sr), Math.floor(buf.length / 4));
+    const L = buf.length - X;
+    const out = ctx.createBuffer(buf.numberOfChannels, L, sr);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const s = buf.getChannelData(ch), d = out.getChannelData(ch);
+      for (let i = 0; i < L; i++) d[i] = s[i];
+      for (let i = 0; i < X; i++) { const t = i / X; d[i] = s[i] * Math.sqrt(t) + s[L + i] * Math.sqrt(1 - t); }
+    }
+    return out;
+  }
+  async function loadFileBuffer(ctx, url) {
+    if (fileBufferCache[url]) return fileBufferCache[url];
+    const resp = await fetch(url);
+    const decoded = await ctx.decodeAudioData(await resp.arrayBuffer());
+    return (fileBufferCache[url] = makeSeamless(ctx, decoded));
   }
 
-  function setSound(type) {
+  async function setSound(type) {
     const same = type === currentSound;
-    currentSound = same ? "off" : type;     // clicking the active chip turns it off
+    currentSound = same ? "off" : type;          // clicking the active chip turns it off
     prefs.sound = currentSound; save();
     updateSoundUI();
     stopAmbient();
     if (currentSound === "off") return;
 
-    if (FILES[currentSound]) {
-      ambient = { kind: "file", looper: startLooper(FILES[currentSound]) };   // real recorded loop, cross-faded
+    const want = currentSound;
+    const ctx = ensureCtx();
+    const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
+
+    if (FILES[want]) {
+      let buf = null;
+      try { buf = await loadFileBuffer(ctx, FILES[want]); } catch { buf = null; }
+      if (currentSound !== want) { try { out.disconnect(); } catch {} return; }   // switched while loading
+      if (buf) {
+        const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+        src.connect(out); src.start();
+        ambient = { kind: "web", out, cleanup: () => { try { src.stop(); } catch {} try { src.disconnect(); } catch {} } };
+      } else {
+        try { out.disconnect(); } catch {}                                        // fallback for file://
+        const el = new Audio(FILES[want]); el.loop = true; el.volume = volTarget();
+        el.play().catch(() => {});
+        ambient = { kind: "el", el };
+        return;
+      }
     } else {
-      // synthesized noise (white / brown)
-      const ctx = ensureCtx();
-      const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
-      const cleanup = BUILDERS[currentSound](ctx, out);
-      ambient = { kind: "synth", out, cleanup };
-      out.gain.setTargetAtTime(volTarget(), ctx.currentTime, 0.4);   // fade in
+      ambient = { kind: "web", out, cleanup: BUILDERS[want](ctx, out) };          // synthesized white / brown
     }
+    out.gain.setTargetAtTime(volTarget(), ctx.currentTime, 0.4);                  // fade in
   }
   function stopAmbient() {
     if (!ambient) return;
     const a = ambient; ambient = null;
-    if (a.kind === "file") {
-      a.looper.fadeOut(280);
-      setTimeout(() => a.looper.stop(), 320);
-    } else {
-      a.out.gain.setTargetAtTime(0, actx.currentTime, 0.3);
-      setTimeout(() => { try { a.cleanup(); } catch {} try { a.out.disconnect(); } catch {} }, 700);
-    }
+    if (a.kind === "el") { try { a.el.pause(); } catch {} try { a.el.src = ""; } catch {} return; }
+    a.out.gain.setTargetAtTime(0, actx.currentTime, 0.3);
+    setTimeout(() => { try { a.cleanup(); } catch {} try { a.out.disconnect(); } catch {} }, 700);
   }
   function applyVol() {
-    // synth: nudge gain. file: looper reads volTarget() live each tick, nothing to do.
-    if (ambient && ambient.kind === "synth") ambient.out.gain.setTargetAtTime(volTarget(), actx.currentTime, 0.08);
+    if (!ambient) return;
+    if (ambient.kind === "el") ambient.el.volume = volTarget();
+    else ambient.out.gain.setTargetAtTime(volTarget(), actx.currentTime, 0.08);
   }
   function updateSoundUI() {
     [...soundsEl.children].forEach(b => b.classList.toggle("active", b.dataset.sound === currentSound));
@@ -390,7 +393,7 @@
     const frac = remaining / DURATIONS[mode];
     ringProg.style.strokeDashoffset = CIRC * (1 - frac);
     ringProg.style.stroke = COLORS[mode];
-    document.title = (running ? "▶ " : "") + fmt(remaining) + " · " + LABELS[mode];
+    document.title = (running ? "▶ " : "") + fmt(remaining) + " · LockedIn";
   }
   function setMode(m, autostart=false) {
     mode = m; remaining = DURATIONS[m];
