@@ -352,10 +352,15 @@
 
     if (want === "coelho") {                          // Coelho plays via a seekable <audio> element
       try { out.disconnect(); } catch {}
-      const audio = coelhoAudio || (coelhoAudio = new Audio());
-      bindTrack(audio);
-      audio.src = FILES[want]; audio.loop = true; audio.volume = volTarget();
-      audio.currentTime = 0;
+      let audio = coelhoAudio;
+      if (!audio) {                                   // create once; DOM-attached + preload for Safari reliability
+        audio = coelhoAudio = new Audio();
+        audio.preload = "auto"; audio.style.display = "none";
+        document.body.appendChild(audio);
+        bindTrack(audio);
+      }
+      audio.loop = true; audio.volume = volTarget();
+      audio.src = FILES[want]; audio.load();          // fresh load resets position to 0 (no currentTime= which throws in Safari)
       audio.play().catch(() => {});
       ambient = { kind: "el", el: audio };
       return;
@@ -383,7 +388,7 @@
   function stopAmbient() {
     if (!ambient) return;
     const a = ambient; ambient = null;
-    if (a.kind === "el") { try { a.el.pause(); } catch {} try { a.el.src = ""; } catch {} return; }
+    if (a.kind === "el") { try { a.el.pause(); } catch {} try { a.el.removeAttribute("src"); a.el.load(); } catch {} return; }
     a.out.gain.setTargetAtTime(0, actx.currentTime, 0.3);
     setTimeout(() => { try { a.cleanup(); } catch {} try { a.out.disconnect(); } catch {} }, 700);
   }
