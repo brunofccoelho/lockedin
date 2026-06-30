@@ -102,6 +102,18 @@
   .vol-row input[type=range] { flex: 1; accent-color: var(--brand); height: 4px; }
   .vol-row .ic { font-size: 15px; color: var(--muted); }
 
+  /* Coelho track player — only shown when the Coelho sound is active */
+  .track { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px 12px;
+    background: #1b1b38; border: 1px solid var(--line); border-radius: 13px; }
+  .track[hidden] { display: none; }
+  .track .play { border: none; background: var(--brand); color: #fff; width: 30px; height: 30px;
+    border-radius: 50%; cursor: pointer; font-size: 13px; line-height: 1; flex: none;
+    display: flex; align-items: center; justify-content: center; transition: all .18s ease; }
+  .track .play:hover { box-shadow: 0 6px 16px rgba(77,77,255,.4); }
+  .track input[type=range] { flex: 1; accent-color: var(--brand); height: 4px; }
+  .track .t { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; }
+  .track .t.cur { text-align: right; } .track .t.dur { text-align: left; }
+
   .toggle {
     margin-top: 14px; background: #1b1b38; border: 1px solid var(--line); border-radius: 13px;
     padding: 11px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted);
@@ -159,6 +171,12 @@
       <button class="chip" data-sound="coffee"><span class="ico">☕</span> Café</button>
       <button class="chip" data-sound="coelho"><span class="ico">🐰</span> Coelho</button>
     </div>
+    <div class="track" id="track" hidden>
+      <button class="play" id="trackPlay" aria-label="Play or pause">⏸</button>
+      <span class="t cur" id="tCur">0:00</span>
+      <input type="range" min="0" max="1000" value="0" id="seek" aria-label="Track position" />
+      <span class="t dur" id="tDur">0:00</span>
+    </div>
     <div class="vol-row">
       <span class="ic">🔈</span>
       <input type="range" min="0" max="100" value="50" id="vol" />
@@ -196,6 +214,8 @@
   const timeEl = el("time"), phaseEl = el("phase"), ringProg = el("ringProg");
   const startBtn = el("startBtn"), resetBtn = el("resetBtn"), skipBtn = el("skipBtn");
   const soundsEl = el("sounds"), vol = el("vol"), chimeToggle = el("chimeToggle");
+  const trackEl = el("track"), trackPlay = el("trackPlay"), seekEl = el("seek"),
+        tCur = el("tCur"), tDur = el("tDur");
 
   const R = 110, CIRC = 2 * Math.PI * R;
   ringProg.style.strokeDasharray = CIRC;
@@ -290,6 +310,7 @@
 
   let ambient = null;                  // synth: {kind,out,cleanup} | file: {kind,audio,fade}
   let currentSound = "off";            // always start silent; user picks a sound
+  let coelhoAudio = null, scrubbing = false, trackBound = false;  // Coelho track player
   const volTarget = () => vol.value / 100;
 
   // Recorded clips are fetched, decoded, and looped through the SAME Web Audio graph
@@ -329,6 +350,16 @@
     const ctx = ensureCtx();
     const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
 
+    if (want === "coelho") {                          // Coelho plays via a seekable <audio> element
+      try { out.disconnect(); } catch {}
+      const audio = coelhoAudio || (coelhoAudio = new Audio());
+      bindTrack(audio);
+      audio.src = FILES[want]; audio.loop = true; audio.volume = volTarget();
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+      ambient = { kind: "el", el: audio };
+      return;
+    }
     if (FILES[want]) {
       let buf = null;
       try { buf = await loadFileBuffer(ctx, FILES[want]); } catch { buf = null; }
@@ -363,6 +394,33 @@
   }
   function updateSoundUI() {
     [...soundsEl.children].forEach(b => b.classList.toggle("active", b.dataset.sound === currentSound));
+    trackEl.hidden = currentSound !== "coelho";       // timeline only for the Coelho track
+  }
+
+  // ---- Coelho track player: seek + pause/continue ----
+  function clock(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    return Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2, "0");
+  }
+  function bindTrack(audio) {
+    if (trackBound) return; trackBound = true;        // listeners bound once to the reused element
+    audio.addEventListener("loadedmetadata", () => { tDur.textContent = clock(audio.duration); });
+    audio.addEventListener("timeupdate", () => {
+      if (scrubbing) return;
+      tCur.textContent = clock(audio.currentTime);
+      if (audio.duration) seekEl.value = Math.round((audio.currentTime / audio.duration) * 1000);
+    });
+    audio.addEventListener("play",  () => { trackPlay.textContent = "⏸"; });
+    audio.addEventListener("pause", () => { trackPlay.textContent = "▶"; });
+    trackPlay.addEventListener("click", () => { audio.paused ? audio.play().catch(() => {}) : audio.pause(); });
+    seekEl.addEventListener("input", () => {          // dragging: preview time, hold off auto-updates
+      scrubbing = true;
+      if (audio.duration) tCur.textContent = clock((seekEl.value / 1000) * audio.duration);
+    });
+    seekEl.addEventListener("change", () => {         // released: jump there
+      if (audio.duration) audio.currentTime = (seekEl.value / 1000) * audio.duration;
+      scrubbing = false;
+    });
   }
 
   // Chime when a timer ends
