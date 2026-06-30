@@ -38,9 +38,16 @@
   body {
     color: var(--ink);
     font-family: var(--font-body);
-    display: flex; flex-direction: column; align-items: center;
-    min-height: 100%; padding: 30px 16px 44px;
+    display: flex; align-items: center; justify-content: center;
+    height: 100dvh; overflow: hidden; padding: 0;
     background: var(--surface);   /* dark theme: Comudel deep navy #080821 */
+  }
+  /* Everything lives in .stage; JS scales it to fit the viewport so nothing scrolls */
+  .stage {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px 28px;
+    transform-origin: center center;
+    will-change: transform;
   }
 
   /* Brand header */
@@ -129,6 +136,7 @@
 </style>
 </head>
 <body class="mode-focus">
+ <div class="stage" id="stage">
 
   <div class="brand">
     <img class="mark" src="comudel-mark.png" alt="Comudel" />
@@ -191,6 +199,8 @@
     <a href="https://comudel.com" target="_blank" rel="noopener">comudel.com</a>
   </div>
 
+ </div><!-- /.stage -->
+
 <script>
 (() => {
   "use strict";
@@ -216,6 +226,15 @@
   const soundsEl = el("sounds"), vol = el("vol"), chimeToggle = el("chimeToggle");
   const trackEl = el("track"), trackPlay = el("trackPlay"), seekEl = el("seek"),
         tCur = el("tCur"), tDur = el("tDur");
+  const stage = el("stage");
+
+  // Scale the whole UI down (never up) so it always fits the screen — no scrolling.
+  function fitStage() {
+    const h = stage.offsetHeight, w = stage.offsetWidth;        // natural size (transforms don't affect this)
+    if (!h || !w) return;
+    const s = Math.min(1, (window.innerHeight - 8) / h, window.innerWidth / w);
+    stage.style.transform = "scale(" + s + ")";
+  }
 
   const R = 110, CIRC = 2 * Math.PI * R;
   ringProg.style.strokeDasharray = CIRC;
@@ -359,8 +378,8 @@
         document.body.appendChild(audio);
         bindTrack(audio);
       }
-      audio.loop = true; audio.volume = volTarget();
-      audio.src = FILES[want]; audio.load();          // fresh load resets position to 0 (no currentTime= which throws in Safari)
+      audio.loop = false; audio.volume = volTarget();  // manual loop (see 'ended') so it restarts at 1:26, not 0
+      audio.src = FILES[want]; audio.load();           // loadedmetadata handler seeks past the empty intro
       audio.play().catch(() => {});
       ambient = { kind: "el", el: audio };
       return;
@@ -400,30 +419,44 @@
   function updateSoundUI() {
     [...soundsEl.children].forEach(b => b.classList.toggle("active", b.dataset.sound === currentSound));
     trackEl.hidden = currentSound !== "coelho";       // timeline only for the Coelho track
+    fitStage();                                       // height changed → re-fit
   }
 
   // ---- Coelho track player: seek + pause/continue ----
+  // The Quintas track has ~1:26 of empty noise at the start, so we treat 1:26 as the
+  // real beginning everywhere: initial play, loop point, and the seek bar's left edge.
+  const QSTART = 86;
+  function qStart(a) { return (a.duration && a.duration > QSTART) ? QSTART : 0; }
+  function qLen(a)   { return Math.max(0, (a.duration || 0) - qStart(a)); }
   function clock(s) {
     if (!isFinite(s) || s < 0) s = 0;
     return Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2, "0");
   }
   function bindTrack(audio) {
     if (trackBound) return; trackBound = true;        // listeners bound once to the reused element
-    audio.addEventListener("loadedmetadata", () => { tDur.textContent = clock(audio.duration); });
+    audio.addEventListener("loadedmetadata", () => {
+      tDur.textContent = clock(qLen(audio));
+      try { audio.currentTime = qStart(audio); } catch {}   // skip the empty intro
+    });
     audio.addEventListener("timeupdate", () => {
       if (scrubbing) return;
-      tCur.textContent = clock(audio.currentTime);
-      if (audio.duration) seekEl.value = Math.round((audio.currentTime / audio.duration) * 1000);
+      const pos = Math.max(0, audio.currentTime - qStart(audio));
+      tCur.textContent = clock(pos);
+      const d = qLen(audio); if (d) seekEl.value = Math.round((pos / d) * 1000);
     });
     audio.addEventListener("play",  () => { trackPlay.textContent = "⏸"; });
     audio.addEventListener("pause", () => { trackPlay.textContent = "▶"; });
+    audio.addEventListener("ended", () => {           // loop back to the real start, not the dead air
+      try { audio.currentTime = qStart(audio); } catch {}
+      audio.play().catch(() => {});
+    });
     trackPlay.addEventListener("click", () => { audio.paused ? audio.play().catch(() => {}) : audio.pause(); });
     seekEl.addEventListener("input", () => {          // dragging: preview time, hold off auto-updates
       scrubbing = true;
-      if (audio.duration) tCur.textContent = clock((seekEl.value / 1000) * audio.duration);
+      tCur.textContent = clock((seekEl.value / 1000) * qLen(audio));
     });
-    seekEl.addEventListener("change", () => {         // released: jump there
-      if (audio.duration) audio.currentTime = (seekEl.value / 1000) * audio.duration;
+    seekEl.addEventListener("change", () => {         // released: jump there (offset past the dead air)
+      audio.currentTime = qStart(audio) + (seekEl.value / 1000) * qLen(audio);
       scrubbing = false;
     });
   }
@@ -541,6 +574,12 @@
   // ---------- Init ----------
   setMode("focus");
   updateSoundUI();
+
+  // Keep the UI fitted to the viewport
+  fitStage();
+  window.addEventListener("resize", fitStage);
+  window.addEventListener("load", fitStage);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitStage);
 })();
 </script>
 </body>
