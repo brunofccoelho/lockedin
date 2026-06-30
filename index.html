@@ -380,18 +380,25 @@
     const ctx = ensureCtx();
     const out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination);
 
-    if (want === "coelho") {                          // Coelho plays via a seekable <audio> element
+    if (want === "coelho") {                          // Quintas: a 71-min track — must STREAM via <audio>, not decode
       try { out.disconnect(); } catch {}
       let audio = coelhoAudio;
-      if (!audio) {                                   // create once; DOM-attached + preload for Safari reliability
+      if (!audio) {                                   // create once, attached + streaming-friendly for Safari
         audio = coelhoAudio = new Audio();
-        audio.preload = "auto"; audio.style.display = "none";
+        audio.preload = "auto";
+        audio.setAttribute("playsinline", "");
         document.body.appendChild(audio);
         bindTrack(audio);
+        audio.addEventListener("error", () => {       // surface a real reason if Safari refuses the media
+          const c = audio.error && audio.error.code;
+          flashNotify("Quintas couldn't load (audio error " + (c || "?") + ")");
+        });
       }
       audio.loop = false; audio.volume = volTarget();  // manual loop (see 'ended') so it restarts at 1:26, not 0
-      audio.src = FILES[want]; audio.load();           // loadedmetadata handler seeks past the empty intro
-      audio.play().catch(() => {});
+      // Media-fragment "#t=" tells the browser to begin at 1:26 natively — no JS seek (which Safari rejects pre-load)
+      audio.src = FILES[want] + "#t=" + QSTART;
+      const pr = audio.play();                         // MUST stay synchronous in the click gesture for Safari
+      if (pr && pr.catch) pr.catch((err) => flashNotify("Quintas blocked: " + (err && err.name || "play failed")));
       ambient = { kind: "el", el: audio };
       return;
     }
@@ -445,10 +452,7 @@
   }
   function bindTrack(audio) {
     if (trackBound) return; trackBound = true;        // listeners bound once to the reused element
-    audio.addEventListener("loadedmetadata", () => {
-      tDur.textContent = clock(qLen(audio));
-      try { audio.currentTime = qStart(audio); } catch {}   // skip the empty intro
-    });
+    audio.addEventListener("loadedmetadata", () => { tDur.textContent = clock(qLen(audio)); });
     audio.addEventListener("timeupdate", () => {
       if (scrubbing) return;
       const pos = Math.max(0, audio.currentTime - qStart(audio));
@@ -687,7 +691,10 @@
       if (pipIsOpen()) { closePip(); return; }
       if (window.documentPictureInPicture) await openDocPip();
       else await openVideoPip();
-    } catch (e) { flashNotify("Couldn't open the floating window 🙈"); }
+    } catch (e) {
+      // Safari has no floating-window API; tell the user where it works instead of failing silently
+      flashNotify("Floating timer works in Brave or Chrome — Safari doesn't allow it 🙏");
+    }
   });
 
   setMode("focus");
