@@ -592,10 +592,9 @@
   //  FLOATING TIMER  (Picture-in-Picture — stays on screen when you leave the tab)
   // ========================================================================
   const floatBtn = el("floatBtn");
-  const vidProbe = document.createElement("video");
-  const PIP_OK = !!window.documentPictureInPicture
-    || vidProbe.requestPictureInPicture !== undefined
-    || vidProbe.webkitSetPresentationMode !== undefined;
+  // The rich floating window needs Document Picture-in-Picture (Chromium only: Chrome/Edge/Brave/Opera).
+  // Safari & Firefox have no equivalent, so we only show the button where it genuinely works.
+  const PIP_OK = !!window.documentPictureInPicture;
   if (PIP_OK) floatBtn.hidden = false;
 
   let pipWin = null, pipTimeEl = null, pipPhaseEl = null, pipRefresh = null;     // Document-PiP
@@ -720,11 +719,9 @@
   floatBtn.addEventListener("click", async () => {
     try {
       if (pipIsOpen()) { closePip(); return; }
-      if (window.documentPictureInPicture) await openDocPip();
-      else await openVideoPip();
+      await openDocPip();
     } catch (e) {
-      // Safari has no floating-window API; tell the user where it works instead of failing silently
-      flashNotify("Floating timer works in Brave or Chrome — Safari doesn't allow it 🙏");
+      flashNotify("Couldn't open the floating window 🙈");
     }
   });
 
