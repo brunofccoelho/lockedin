@@ -599,17 +599,28 @@
   if (PIP_OK) floatBtn.hidden = false;
 
   let pipWin = null, pipTimeEl = null, pipPhaseEl = null, pipRefresh = null;     // Document-PiP
+  let pipRing = null, pipSndWrap = null;
+  const PIP_RC = 2 * Math.PI * 42;                                              // ring circumference (r=42)
+  const SOUND_ICONS = [                                                          // mirror of the on-page chips
+    ["off","🔇"], ["white","⚪"], ["brown","🟤"], ["waves","🌊"],
+    ["rain","🌧️"], ["fire","🔥"], ["coffee","☕"], ["coelho","🐰"]
+  ];
   let pipVideo = null, pipCanvas = null, pipCtx = null, pipDrawTimer = null;     // video-PiP fallback
 
   const liveRemaining = () => running ? Math.max(0, Math.round((endAt - Date.now()) / 1000)) : remaining;
   const modeColor = () => mode === "focus" ? "#4d4dff" : mode === "short" ? "#19b89a" : "#e7625f";
 
   function updatePipNow() {                          // called from render() + an interval while open
-    if (pipWin && pipTimeEl) {
-      pipTimeEl.textContent = fmt(liveRemaining());
-      pipTimeEl.style.color = modeColor();
-      pipPhaseEl.textContent = (running ? "" : "⏸ ") + LABELS[mode];
+    if (!pipWin || !pipTimeEl) return;
+    pipTimeEl.textContent = fmt(liveRemaining());
+    pipPhaseEl.textContent = (running ? "" : "⏸ ") + LABELS[mode];
+    if (pipRing) {
+      const frac = Math.max(0, liveRemaining() / DURATIONS[mode]);
+      pipRing.style.strokeDashoffset = PIP_RC * (1 - frac);
+      pipRing.style.stroke = modeColor();
     }
+    if (pipSndWrap) [...pipSndWrap.children].forEach(b =>
+      b.classList.toggle("on", b.dataset.sound === currentSound));
   }
   function setFloatActive(on) {
     floatBtn.classList.toggle("active", on);
@@ -617,23 +628,43 @@
   }
 
   async function openDocPip() {
-    pipWin = await documentPictureInPicture.requestWindow({ width: 280, height: 170 });
+    pipWin = await documentPictureInPicture.requestWindow({ width: 230, height: 300 });
     const d = pipWin.document;
     const st = d.createElement("style");
     st.textContent =
       '*{margin:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}' +
       'body{background:#080821;color:#ececf6;height:100vh;display:flex;flex-direction:column;align-items:center;' +
-      'justify-content:center;gap:6px;cursor:pointer;user-select:none}' +
-      '#pt{font-size:62px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-1px;line-height:1}' +
-      '#pp{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9595b3;font-weight:600}' +
-      '.h{position:fixed;bottom:7px;font-size:9px;letter-spacing:1px;color:#5b5b80}';
+      'justify-content:center;gap:13px;user-select:none;padding:12px}' +
+      '.ring{position:relative;width:126px;height:126px;cursor:pointer;flex:none}' +
+      '.ring svg{width:100%;height:100%;transform:rotate(-90deg)}' +
+      '.trk{fill:none;stroke:#23233f;stroke-width:8}' +
+      '.prg{fill:none;stroke:#4d4dff;stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .3s linear,stroke .3s}' +
+      '.ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}' +
+      '#pt{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.5px;line-height:1}' +
+      '#pp{font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;color:#9595b3;font-weight:600;margin-top:3px}' +
+      '.snds{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;max-width:196px}' +
+      '.s{border:1px solid #2a2a4a;background:#1b1b38;border-radius:9px;padding:7px 0;font-size:16px;line-height:1;' +
+      'cursor:pointer;transition:all .15s}' +
+      '.s:hover{border-color:#3a3a60}.s.on{background:#4d4dff;border-color:#4d4dff}';
     d.head.appendChild(st);
-    const wrap = d.createElement("div");
-    wrap.innerHTML = '<div id="pt">00:00</div><div id="pp"></div><div class="h">TAP TO PAUSE / RESUME</div>';
-    d.body.appendChild(wrap);
+    d.body.innerHTML =
+      '<div class="ring" id="pring"><svg viewBox="0 0 100 100">' +
+      '<circle class="trk" cx="50" cy="50" r="42"></circle>' +
+      '<circle class="prg" id="pprg" cx="50" cy="50" r="42" stroke-dasharray="' + PIP_RC + '"></circle>' +
+      '</svg><div class="ctr"><div id="pt">00:00</div><div id="pp"></div></div></div>' +
+      '<div class="snds" id="psnds"></div>';
     pipTimeEl = d.getElementById("pt");
     pipPhaseEl = d.getElementById("pp");
-    d.body.addEventListener("click", () => { running ? pause() : start(); });    // shares this page's JS
+    pipRing = d.getElementById("pprg");
+    pipSndWrap = d.getElementById("psnds");
+    SOUND_ICONS.forEach(([key, icon]) => {           // sound switcher inside the floating window
+      const b = d.createElement("button");
+      b.className = "s"; b.dataset.sound = key; b.textContent = icon;
+      b.title = key;
+      b.addEventListener("click", () => setSound(key));
+      pipSndWrap.appendChild(b);
+    });
+    d.getElementById("pring").addEventListener("click", () => { running ? pause() : start(); });
     pipWin.addEventListener("pagehide", closePip);
     pipRefresh = setInterval(updatePipNow, 500);
     updatePipNow();
@@ -679,7 +710,7 @@
   }
   function closePip() {
     if (pipRefresh) { clearInterval(pipRefresh); pipRefresh = null; }
-    if (pipWin) { try { pipWin.close(); } catch {} pipWin = pipTimeEl = pipPhaseEl = null; }
+    if (pipWin) { try { pipWin.close(); } catch {} pipWin = pipTimeEl = pipPhaseEl = pipRing = pipSndWrap = null; }
     stopVideoPip();
     setFloatActive(false);
   }
