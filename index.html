@@ -130,6 +130,15 @@
   .toggle .dot { width: 9px; height: 9px; border-radius: 50%; background: #45456c; transition: all .2s; }
   .toggle.on .dot { background: var(--brand); box-shadow: 0 0 10px #4d4dff88; }
 
+  .floatbtn { margin-top: -14px; margin-bottom: 4px; background: var(--card); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 9px 18px; font-size: 12.5px;
+    font-weight: 600; cursor: pointer; font-family: var(--font-body); display: inline-flex;
+    align-items: center; gap: 7px; transition: all .18s ease; }
+  .floatbtn:hover { color: var(--ink); border-color: #3a3a60; }
+  .floatbtn.active { background: var(--brand); border-color: var(--brand); color: #fff;
+    box-shadow: 0 8px 20px rgba(77,77,255,.3); }
+  .floatbtn[hidden] { display: none; }
+
   .footer { color: var(--muted); font-size: 12px; margin-top: 24px; text-align: center; line-height: 1.7; }
   .footer kbd { background: #23233f; border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; font-size: 11px; color: var(--ink); }
   .footer a { color: var(--brand); text-decoration: none; font-weight: 600; }
@@ -166,6 +175,8 @@
     <button class="btn btn-ghost" id="resetBtn">Reset</button>
     <button class="btn btn-ghost" id="skipBtn">Skip ⏭</button>
   </div>
+
+  <button class="floatbtn" id="floatBtn" hidden>⤢ Keep timer floating on screen</button>
 
   <div class="panel">
     <h2>Focus sound</h2>
@@ -492,6 +503,7 @@
     ringProg.style.strokeDashoffset = CIRC * (1 - frac);
     ringProg.style.stroke = COLORS[mode];
     document.title = (running ? "▶ " : "") + fmt(remaining) + " · LockedIn";
+    updatePipNow();
   }
   function setMode(m, autostart=false) {
     mode = m; remaining = DURATIONS[m];
@@ -572,6 +584,112 @@
   }, { once: true });
 
   // ---------- Init ----------
+  // ========================================================================
+  //  FLOATING TIMER  (Picture-in-Picture — stays on screen when you leave the tab)
+  // ========================================================================
+  const floatBtn = el("floatBtn");
+  const vidProbe = document.createElement("video");
+  const PIP_OK = !!window.documentPictureInPicture
+    || vidProbe.requestPictureInPicture !== undefined
+    || vidProbe.webkitSetPresentationMode !== undefined;
+  if (PIP_OK) floatBtn.hidden = false;
+
+  let pipWin = null, pipTimeEl = null, pipPhaseEl = null, pipRefresh = null;     // Document-PiP
+  let pipVideo = null, pipCanvas = null, pipCtx = null, pipDrawTimer = null;     // video-PiP fallback
+
+  const liveRemaining = () => running ? Math.max(0, Math.round((endAt - Date.now()) / 1000)) : remaining;
+  const modeColor = () => mode === "focus" ? "#4d4dff" : mode === "short" ? "#19b89a" : "#e7625f";
+
+  function updatePipNow() {                          // called from render() + an interval while open
+    if (pipWin && pipTimeEl) {
+      pipTimeEl.textContent = fmt(liveRemaining());
+      pipTimeEl.style.color = modeColor();
+      pipPhaseEl.textContent = (running ? "" : "⏸ ") + LABELS[mode];
+    }
+  }
+  function setFloatActive(on) {
+    floatBtn.classList.toggle("active", on);
+    floatBtn.textContent = on ? "⤢ Stop floating" : "⤢ Keep timer floating on screen";
+  }
+
+  async function openDocPip() {
+    pipWin = await documentPictureInPicture.requestWindow({ width: 280, height: 170 });
+    const d = pipWin.document;
+    const st = d.createElement("style");
+    st.textContent =
+      '*{margin:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}' +
+      'body{background:#080821;color:#ececf6;height:100vh;display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:center;gap:6px;cursor:pointer;user-select:none}' +
+      '#pt{font-size:62px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-1px;line-height:1}' +
+      '#pp{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9595b3;font-weight:600}' +
+      '.h{position:fixed;bottom:7px;font-size:9px;letter-spacing:1px;color:#5b5b80}';
+    d.head.appendChild(st);
+    const wrap = d.createElement("div");
+    wrap.innerHTML = '<div id="pt">00:00</div><div id="pp"></div><div class="h">TAP TO PAUSE / RESUME</div>';
+    d.body.appendChild(wrap);
+    pipTimeEl = d.getElementById("pt");
+    pipPhaseEl = d.getElementById("pp");
+    d.body.addEventListener("click", () => { running ? pause() : start(); });    // shares this page's JS
+    pipWin.addEventListener("pagehide", closePip);
+    pipRefresh = setInterval(updatePipNow, 500);
+    updatePipNow();
+    setFloatActive(true);
+  }
+
+  function ensureVideoPip() {
+    if (pipCanvas) return;
+    pipCanvas = document.createElement("canvas"); pipCanvas.width = 320; pipCanvas.height = 180;
+    pipCtx = pipCanvas.getContext("2d");
+    pipVideo = document.createElement("video");
+    pipVideo.muted = true; pipVideo.playsInline = true; pipVideo.setAttribute("playsinline", "");
+    pipVideo.style.cssText = "position:fixed;left:-9999px;width:160px;height:90px;opacity:0;pointer-events:none";
+    document.body.appendChild(pipVideo);
+    pipVideo.addEventListener("leavepictureinpicture", () => { stopVideoPip(); setFloatActive(false); });
+  }
+  function drawPipFrame() {
+    const c = pipCtx, W = pipCanvas.width, H = pipCanvas.height;
+    c.fillStyle = "#080821"; c.fillRect(0, 0, W, H);
+    const frac = Math.max(0, liveRemaining() / DURATIONS[mode]);
+    c.fillStyle = "#23233f"; c.fillRect(0, 0, W, 7);
+    c.fillStyle = modeColor(); c.fillRect(0, 0, W * frac, 7);
+    c.fillStyle = "#ececf6"; c.textAlign = "center"; c.textBaseline = "middle";
+    c.font = '700 66px -apple-system, sans-serif';
+    c.fillText(fmt(liveRemaining()), W / 2, H / 2 + 4);
+    c.fillStyle = "#9595b3"; c.font = '600 15px -apple-system, sans-serif';
+    c.fillText((running ? "" : "⏸ ") + LABELS[mode].toUpperCase(), W / 2, H - 22);
+  }
+  async function openVideoPip() {
+    ensureVideoPip();
+    drawPipFrame();
+    if (!pipVideo.srcObject) pipVideo.srcObject = pipCanvas.captureStream(30);
+    await pipVideo.play();
+    if (pipVideo.requestPictureInPicture) await pipVideo.requestPictureInPicture();
+    else if (pipVideo.webkitSetPresentationMode) pipVideo.webkitSetPresentationMode("picture-in-picture");
+    pipDrawTimer = setInterval(drawPipFrame, 500);
+    setFloatActive(true);
+  }
+  function stopVideoPip() {
+    if (pipDrawTimer) { clearInterval(pipDrawTimer); pipDrawTimer = null; }
+    try { if (document.pictureInPictureElement === pipVideo) document.exitPictureInPicture(); } catch {}
+    try { if (pipVideo && pipVideo.webkitPresentationMode === "picture-in-picture") pipVideo.webkitSetPresentationMode("inline"); } catch {}
+  }
+  function closePip() {
+    if (pipRefresh) { clearInterval(pipRefresh); pipRefresh = null; }
+    if (pipWin) { try { pipWin.close(); } catch {} pipWin = pipTimeEl = pipPhaseEl = null; }
+    stopVideoPip();
+    setFloatActive(false);
+  }
+  const pipIsOpen = () => !!pipWin
+    || (pipVideo && (document.pictureInPictureElement === pipVideo || pipVideo.webkitPresentationMode === "picture-in-picture"));
+
+  floatBtn.addEventListener("click", async () => {
+    try {
+      if (pipIsOpen()) { closePip(); return; }
+      if (window.documentPictureInPicture) await openDocPip();
+      else await openVideoPip();
+    } catch (e) { flashNotify("Couldn't open the floating window 🙈"); }
+  });
+
   setMode("focus");
   updateSoundUI();
 
