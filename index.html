@@ -429,6 +429,19 @@
     a.out.gain.setTargetAtTime(0, actx.currentTime, 0.3);
     setTimeout(() => { try { a.cleanup(); } catch {} try { a.out.disconnect(); } catch {} }, 700);
   }
+  // Pause/resume the sound WITHOUT tearing it down — kept in sync with the timer.
+  // "el" clips just pause the media element; "web" graphs suspend the whole audio
+  // context (buffer sources can't be restarted, but suspend/resume is seamless).
+  function pauseAmbient() {
+    if (!ambient) return;
+    if (ambient.kind === "el") { try { ambient.el.pause(); } catch {} }
+    else { try { if (actx && actx.state === "running") actx.suspend(); } catch {} }
+  }
+  function resumeAmbient() {
+    if (!ambient) return;
+    if (ambient.kind === "el") { try { ambient.el.play().catch(() => {}); } catch {} }
+    else { try { if (actx && actx.state === "suspended") actx.resume(); } catch {} }
+  }
   function applyVol() {
     if (!ambient) return;
     if (ambient.kind === "el") ambient.el.volume = volTarget();
@@ -528,8 +541,9 @@
     ticker = setInterval(tick, 250);
     startBtn.textContent = "Pause";
     ensureCtx();
+    resumeAmbient();
   }
-  function pause() { running = false; clearInterval(ticker); startBtn.textContent = "Resume"; render(); }
+  function pause() { running = false; clearInterval(ticker); startBtn.textContent = "Resume"; pauseAmbient(); render(); }
   function stop()  { running = false; clearInterval(ticker); startBtn.textContent = "Start"; }
   function reset() { remaining = DURATIONS[mode]; stop(); render(); }
   function complete() {
